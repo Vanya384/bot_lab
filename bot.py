@@ -41,7 +41,7 @@ def log_action(user_id: int, nickname: str, motion: str, API_name: str, API_answ
         f.write(log_line)
 
 
-keyboard = ReplyKeyboardMarkup(keyboard = [ [KeyboardButton( text = "Курс валют (НБРБ)"), KeyboardButton( text = "Виды спорта")] , [KeyboardButton( text = "Пословица дня")] ], resize_keyboard = True) #создание кнопок
+keyboard = ReplyKeyboardMarkup(keyboard = [ [KeyboardButton( text = "Курс валют (НБРБ)"), KeyboardButton( text = "Книги")] , [KeyboardButton( text = "Цитаты")] ], resize_keyboard = True) #создание кнопок
                                                                                                                                                                                                          #resize_keyboard -автоматически настраивает размер кнопок под устройство пользователя
 
 
@@ -93,41 +93,8 @@ async def get_by_currency(message: Message):
             log_action(message.from_user.id, message.from_user.username, "Button click", "NBRB API", "failed") #если банк изначально не ответил,то чтобы бот не ложился для всех пользователей,он предупредит пользователя
             await message.answer("Не удалось установить соединение с сервером НБРБ\n")
 
-@dp.message(F.text == "Виды спорта")
 
-async def get_sports_info(message: Message):
-    API_url = "https://www.thesportsdb.com/api/v1/json/3/all_sports.php"   #ссылка на спортивный сайт
-    async with aiohttp.ClientSession() as session:   #открывает асинхронный браузер внутри кода,через который бот связывается с сервером
-
-        try:
-            async with session.get(API_url) as response:  #записываем ответ в response
-                if response.status == 200:   
-                    data = await response.json()
-                    sports_list = data.get("sports", [])  #.get() используется для того,чтобы если sports не нашло,программа не сломалась,а вернула пустой список
-                    sample_size = min(3, len(sports_list))  #запрашиваем от 3 до общего количества видов спорта дабы не вызвать
-                    sampled_sports = random.sample(sports_list, sample_size)
-                                                                                            # min(3, len(sports_list))-необходим для того,чтобы в случае,если выберется меньше 3 элементов, добралось до 3                
-                    answer_text = "Интересные виды спорта из базы сервиса:\n"
-
-                    for sport in sampled_sports:
-                        name = sport.get("strSport")
-                        format_type = sport.get("strFormat")
-                        desc = sport.get("strSportDescription", "Описание отсутствует")[:150] + "..."  #[:150] + "..." для того,чтобы обрезать сообщение на 150 символе и не засорять чат
-                        answer_text += f"{name}(Тип: {format_type})\n _{desc}_\n"
-
-                    log_action(message.from_user.id, message.from_user.username, "Button click", "TheSportsDB API", "success")
-                    await message.answer(answer_text)
-
-                else:
-                    log_action(message.from_user.id, message.from_user.username, "Button click", "TheSportsDB API", "error")
-                    await message.answer("Спортивный сервер не ответил на запрос\n")
-
-        except Exception:
-            log_action(message.from_user.id, message.from_user.username, "Button click", "TheSportsDB API", "failed")
-            await message.answer("Не удалось установить соединение со спортивным сервером\n")
-
-
-@dp.message(F.text == "Пословица дня")
+@dp.message(F.text == "Цитаты")
 async def get_proverb_info(message: Message):
     API_url = "https://dummyjson.com/quotes?limit=3"   #запрашиваем 3 цитаты
     
@@ -140,7 +107,7 @@ async def get_proverb_info(message: Message):
                     json_data = await response.json() 
                     quotes_list = json_data.get("quotes", [])
                     if not quotes_list:   #если нет пословиц
-                        await message.answer("К сожалению, пословицы не найдены.")
+                        await message.answer("К сожалению, цитаты не найдены.")
                         return
 
                     result_text = ""
@@ -156,16 +123,69 @@ async def get_proverb_info(message: Message):
                 
                 else:
                     log_action(message.from_user.id, message.from_user.username, "Button click", "DummyJSON API", "error")
-                    await message.answer("Не удалось найти пословицу (ошибка сервера)")
+                    await message.answer("Не удалось найти цитату (ошибка сервера)")
         
         except Exception:
             log_action(message.from_user.id, message.from_user.username, "Button click", "DummyJSON API", "failed")
-            await message.answer("Не удалось установить соединение с сервером пословиц.")
-@dp.message(F.text)
+            await message.answer("Не удалось установить соединение с сервером цитат.")
 
-async def echo_unknown(message: Message):
-    log_action(message.from_user.id, message.from_user.username, "Keyboard typing", "none", "none")
-    await message.answer(f"Вы написали «{message.text}», я не знаю такой команды\n")
+
+@dp.message(F.text == "Книги")
+async def ask_for_book_title(message: Message):
+    log_action(message.from_user.id, message.from_user.username, "Button click", "none", "waiting_for_input")
+    await message.answer("Введите название книги для поиска:")
+
+@dp.message(F.text) 
+async def handle_book_search_or_unknown(message: Message):
+    user_text = message.text
+    log_action(message.from_user.id, message.from_user.username, "Text input (Book Search)", "OpenLibrary API", "processing")
+    API_url = f"https://openlibrary.org/search.json?q={user_text}&limit=1&language=rus"
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            headers = {"User-Agent": "TelegramBot/1.0"}
+            async with session.get(API_url, headers=headers) as response:
+
+                if response.status == 200:
+                    json_data = await response.json()
+                    docs = json_data.get("docs", []) 
+
+                    if not docs:
+                        log_action(message.from_user.id, message.from_user.username, "Search result", "OpenLibrary API", "not_found")
+                        await message.answer(f"По запросу «{user_text}» ничего не найдено.\n Попробуйте изменить название.")
+                        return
+                    
+                    book = docs[0]
+                    title = book.get("title", "Название неизвестно")
+                    authors_list = book.get("author_name", [])
+
+                    if authors_list:
+                        author = ", ".join(authors_list)  
+
+                    else:
+                        author = "Автор неизвестен"
+
+                    year = book.get("first_publish_year", "")
+                    subjects = book.get("subject", [])
+                    if subjects:
+                        topics = ", ".join(subjects[:3])
+
+                    else:
+                        topics = "Темы не указаны"
+
+                    answer = (f"Найдена книга:\n" f"Название: {title}\n" f"Автор: {author}\n" f"Год издания: {year}\n" f"Темы: {topics}")
+                    
+                    log_action(message.from_user.id, message.from_user.username, "Search result", "OpenLibrary API", "success")
+                    await message.answer(answer)
+                    
+                else:
+                    log_action(message.from_user.id, message.from_user.username, "Search error", "OpenLibrary API", "error")
+                    await message.answer("Ошибка при обращении к базе книг.")
+
+        except Exception:
+            log_action(message.from_user.id, message.from_user.username, "Search failed", "OpenLibrary API", "failed")
+            await message.answer("Не удалось подключиться к сервису поиска книг.")
+
 
 async def main():
     logging.basicConfig(level=logging.INFO)
